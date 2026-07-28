@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import time
 import urllib.parse
 import qrcode
 import cv2
@@ -118,6 +119,64 @@ def scan_qr_image(image_path: str) -> str:
     return data
 
 
+def scan_qr_from_camera(camera_index: int = 0, timeout_seconds: int = 30) -> str:
+    """
+    Opens your webcam, shows a live preview, and returns the raw decoded
+    string as soon as a QR code is recognized in frame.
+
+    Press 'q' at any time to cancel the scan.
+    Requires a local webcam -- this will not work on a headless server.
+    """
+    cap = cv2.VideoCapture(camera_index)
+    if not cap.isOpened():
+        raise RuntimeError(
+            "Could not access the camera. Make sure a webcam is connected "
+            "and not being used by another app, and that this program has "
+            "camera permission."
+        )
+
+    detector = cv2.QRCodeDetector()
+    start_time = time.time()
+    decoded_data = None
+
+    print("📷 Point your camera at the QR code... (press 'q' to cancel)")
+
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                continue
+
+            data, points, _ = detector.detectAndDecode(frame)
+
+            # Draw a box around the QR code once it's found, for visual feedback
+            if points is not None and len(points) > 0:
+                pts = points[0].astype(int)
+                for i in range(len(pts)):
+                    cv2.line(frame, tuple(pts[i]), tuple(pts[(i + 1) % len(pts)]), (0, 255, 0), 2)
+
+            cv2.imshow("Scan QR Code - press 'q' to cancel", frame)
+
+            if data:
+                decoded_data = data
+                break
+
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+            if time.time() - start_time > timeout_seconds:
+                print("⏱️  Timed out waiting for a QR code.")
+                break
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
+
+    if not decoded_data:
+        raise ValueError("No QR code was scanned (cancelled or timed out).")
+
+    return decoded_data
+
+
 def decrypt_qr_data(raw_qr_data: str, key_str: str) -> dict:
     """
     Extracts the clean public URL and decrypts the hidden secret message
@@ -197,11 +256,18 @@ def _run_decrypt_flow():
     else:
         real_key = input("Paste the real key: ").strip()
 
-    image_path = input("Path to the QR image file (e.g. dual_qr_arun.png): ").strip()
+    print("\nHow do you want to scan the QR code?")
+    print("  1) From an image file on disk")
+    print("  2) Live camera scan")
+    scan_choice = input("Choose 1 or 2: ").strip()
 
     try:
-        scanned_string = scan_qr_image(image_path)
-    except (FileNotFoundError, ValueError) as e:
+        if scan_choice == "2":
+            scanned_string = scan_qr_from_camera()
+        else:
+            image_path = input("Path to the QR image file (e.g. dual_qr_arun.png): ").strip()
+            scanned_string = scan_qr_image(image_path)
+    except (FileNotFoundError, ValueError, RuntimeError) as e:
         print(f"\n❌ Couldn't read that QR code: {e}")
         return
 
