@@ -1,0 +1,4 @@
+qrcode[pil]
+opencv-python
+cryptography
+pyinstaller

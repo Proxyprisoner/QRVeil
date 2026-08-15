@@ -231,36 +231,41 @@ def decrypt_qr_data(raw_qr_data: str, key_str: str) -> dict:
 # UI — everything below is presentation only, no logic changes above
 # ======================================================================
 
-BG = "#0b0e1a"
-BG_GRADIENT_TOP = "#12162a"
-PANEL = "#171b2e"
-PANEL_ALT = "#1e2338"
-PANEL_SOFT = "#20253f"
-ACCENT = "#7c5cff"
-ACCENT_HOVER = "#9078ff"
-ACCENT_DIM = "#4d3d99"
-ACCENT_2 = "#2be6b8"
-ACCENT_2_DIM = "#1a9d80"
-TEXT = "#f3f4fc"
-SUBTEXT = "#9aa0c3"
-MUTED = "#6b7099"
-ENTRY_BG = "#1c2039"
-ENTRY_BG_FOCUS = "#242a4a"
-BORDER = "#2c3154"
-BORDER_FOCUS = "#7c5cff"
-DANGER = "#ff6b81"
-GOLD = "#ffc857"
+# "Case file" theme — aged paper + stamp-red ink, instead of a dark
+# purple-gradient look. Every widget below is built purely off these
+# constants, so this block is the only place colors/fonts are chosen.
+BG = "#ece3cf"
+BG_GRADIENT_TOP = "#ece3cf"
+PANEL = "#f7f1e2"
+PANEL_ALT = "#e3d7b8"
+PANEL_SOFT = "#efe6d2"
+ACCENT = "#97302f"
+ACCENT_HOVER = "#ab3d3a"
+ACCENT_DIM = "#c9bc9c"
+ACCENT_2 = "#2f5f42"
+ACCENT_2_DIM = "#3f6b4c"
+TEXT = "#241f18"
+SUBTEXT = "#6b6250"
+MUTED = "#948a72"
+ENTRY_BG = "#fffdf7"
+ENTRY_BG_FOCUS = "#fff8e8"
+BORDER = "#c7b992"
+BORDER_FOCUS = "#97302f"
+DANGER = "#97302f"
+GOLD = "#a97c3f"
+BTN_TEXT = "#fbf3e4"        # light ink used on top of the dark-red accent
+BTN_DISABLED = "#b7ab8c"    # muted paper-grey for disabled buttons
 
-FONT_TITLE = ("Segoe UI Semibold", 22)
-FONT_SUB = ("Segoe UI", 10)
-FONT_LABEL = ("Segoe UI Semibold", 9)
-FONT_HINT = ("Segoe UI", 8)
-FONT_BODY = ("Segoe UI", 10)
+FONT_TITLE = ("Georgia", 22, "bold")
+FONT_SUB = ("Georgia", 10)
+FONT_LABEL = ("Consolas", 9, "bold")
+FONT_HINT = ("Georgia", 8, "italic")
+FONT_BODY = ("Georgia", 10)
 FONT_MONO = ("Consolas", 10)
 FONT_MONO_SM = ("Consolas", 9)
-FONT_BTN = ("Segoe UI Semibold", 10)
-FONT_CARD_TITLE = ("Segoe UI Semibold", 12)
-FONT_STEP_NUM = ("Segoe UI Semibold", 13)
+FONT_BTN = ("Courier New", 10, "bold")
+FONT_CARD_TITLE = ("Courier New", 12, "bold")
+FONT_STEP_NUM = ("Georgia", 13, "bold")
 
 
 def _round_rect_points(x1, y1, x2, y2, r):
@@ -273,7 +278,7 @@ class RoundedButton(tk.Canvas):
     """A small canvas-based button with rounded corners, hover + disabled state."""
 
     def __init__(self, parent, text, command, bg=ACCENT, hover=ACCENT_HOVER,
-                 fg="#0c0a14", width=180, height=38, font=FONT_BTN, icon="", **kw):
+                 fg=BTN_TEXT, width=180, height=38, font=FONT_BTN, icon="", **kw):
         super().__init__(parent, width=width, height=height, bg=parent["bg"],
                           highlightthickness=0, **kw)
         self.command = command
@@ -304,7 +309,7 @@ class RoundedButton(tk.Canvas):
     def set_enabled(self, enabled: bool):
         self.enabled = enabled
         self.configure(cursor="hand2" if enabled else "arrow")
-        self._draw(self.bg_color if enabled else "#2a2d42")
+        self._draw(self.bg_color if enabled else BTN_DISABLED)
 
 
 class GhostButton(tk.Canvas):
@@ -478,7 +483,7 @@ class DualQRApp(tk.Tk):
                          padding=(22, 12), font=FONT_LABEL, borderwidth=0)
         style.map("TNotebook.Tab",
                   background=[("selected", ACCENT)],
-                  foreground=[("selected", "#0c0a14")])
+                  foreground=[("selected", BTN_TEXT)])
         style.layout("TNotebook.Tab", [
             ('Notebook.tab', {'sticky': 'nswe', 'children':
                 [('Notebook.padding', {'side': 'top', 'sticky': 'nswe', 'children':
