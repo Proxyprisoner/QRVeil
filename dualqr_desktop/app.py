@@ -996,7 +996,6 @@ class DualQRApp(tk.Tk):
         vbar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=vbar.set)
         canvas.pack(side="left", fill="both", expand=True)
-        vbar.pack(side="right", fill="y")
 
         inner = tk.Frame(canvas, bg=BG)
         window = canvas.create_window((0, 0), window=inner, anchor="nw")
