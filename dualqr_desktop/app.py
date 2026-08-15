@@ -9,6 +9,7 @@ input()/print() in a terminal loop, there's now a Tkinter desktop UI.
 import base64
 import hashlib
 import os
+import sys
 import threading
 import time
 import urllib.parse
@@ -256,16 +257,32 @@ GOLD = "#a97c3f"
 BTN_TEXT = "#fbf3e4"        # light ink used on top of the dark-red accent
 BTN_DISABLED = "#b7ab8c"    # muted paper-grey for disabled buttons
 
-FONT_TITLE = ("Georgia", 22, "bold")
-FONT_SUB = ("Georgia", 10)
-FONT_LABEL = ("Consolas", 9, "bold")
-FONT_HINT = ("Georgia", 8, "italic")
-FONT_BODY = ("Georgia", 10)
-FONT_MONO = ("Consolas", 10)
-FONT_MONO_SM = ("Consolas", 9)
-FONT_BTN = ("Courier New", 10, "bold")
-FONT_CARD_TITLE = ("Courier New", 12, "bold")
-FONT_STEP_NUM = ("Georgia", 13, "bold")
+# Sizes bumped up a notch from the first pass, and the button/card-title
+# font swapped from Courier New (a legacy bitmap-hinted face that renders
+# blocky/pixelated at small sizes) to Consolas, which keeps the same
+# technical "typewriter-ish" character but is a proper ClearType-hinted
+# font, so it stays crisp at these sizes.
+FONT_TITLE = ("Georgia", 24, "bold")
+FONT_SUB = ("Georgia", 11)
+FONT_LABEL = ("Consolas", 10, "bold")
+FONT_HINT = ("Georgia", 9, "italic")
+FONT_BODY = ("Georgia", 11)
+FONT_MONO = ("Consolas", 11)
+FONT_MONO_SM = ("Consolas", 10)
+FONT_BTN = ("Consolas", 11, "bold")
+FONT_CARD_TITLE = ("Consolas", 13, "bold")
+FONT_STEP_NUM = ("Georgia", 14, "bold")
+
+
+def resource_path(*parts) -> str:
+    """
+    Resolves a path to a bundled asset (e.g. assets/icon.png) that works
+    both when running app.py directly and when running from a PyInstaller
+    --onefile build, which unpacks bundled data to a temp folder at
+    sys._MEIPASS.
+    """
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, *parts)
 
 
 def _round_rect_points(x1, y1, x2, y2, r):
@@ -316,7 +333,7 @@ class GhostButton(tk.Canvas):
     """Small outlined/secondary button — used for Copy, Browse-style actions."""
 
     def __init__(self, parent, text, command, width=88, height=28,
-                 fg=SUBTEXT, hover_fg=TEXT, font=("Segoe UI", 9), **kw):
+                 fg=SUBTEXT, hover_fg=TEXT, font=("Segoe UI", 10), **kw):
         super().__init__(parent, width=width, height=height, bg=parent["bg"],
                           highlightthickness=0, **kw)
         self.command = command
@@ -348,12 +365,12 @@ class GhostButton(tk.Canvas):
 class StatusPill(tk.Frame):
     """Small colored-dot + text status indicator."""
 
-    def __init__(self, parent, **kw):
+    def __init__(self, parent, wraplength=520, **kw):
         super().__init__(parent, bg=parent["bg"], **kw)
         self.dot = tk.Canvas(self, width=10, height=10, bg=parent["bg"], highlightthickness=0)
         self.dot.pack(side="left", padx=(0, 8))
         self.label = tk.Label(self, text="", bg=parent["bg"], fg=SUBTEXT,
-                               font=FONT_SUB, wraplength=520, justify="left", anchor="w")
+                               font=FONT_SUB, wraplength=wraplength, justify="left", anchor="w")
         self.label.pack(side="left", fill="x")
         self._set_dot(MUTED)
 
@@ -432,10 +449,20 @@ class DualQRApp(tk.Tk):
         self.geometry("1160x760")
         self.minsize(1000, 660)
         self.configure(bg=BG)
+
+        # App logo — used for the window/taskbar icon and the header mark.
+        # Loaded once here and kept on self.* so Tk doesn't garbage-collect
+        # the image (a common gotcha: a PhotoImage with no live Python
+        # reference gets cleared and the icon/image silently disappears).
+        self.logo_img = None
         try:
-            self.iconphoto(False, tk.PhotoImage(width=1, height=1))
+            logo_source = Image.open(resource_path("assets", "icon.png")).convert("RGBA")
+            self.iconphoto(True, ImageTk.PhotoImage(logo_source))
+            header_logo = logo_source.copy()
+            header_logo.thumbnail((48, 48), Image.LANCZOS)
+            self.logo_img = ImageTk.PhotoImage(header_logo)
         except Exception:
-            pass
+            self.logo_img = None
 
         self._build_header()
         self._build_tabs()
@@ -449,9 +476,14 @@ class DualQRApp(tk.Tk):
         top = tk.Frame(header, bg=BG)
         top.pack(fill="x")
 
-        logo = tk.Canvas(top, width=48, height=48, bg=BG, highlightthickness=0)
-        logo.create_polygon(_round_rect_points(0, 0, 48, 48, 14), smooth=True, fill=PANEL_SOFT, outline=ACCENT_DIM)
-        logo.create_text(24, 24, text="▦", fill=ACCENT_2, font=("Segoe UI", 20))
+        if self.logo_img is not None:
+            logo = tk.Label(top, image=self.logo_img, bg=BG)
+        else:
+            # Fallback if assets/icon.png didn't ship with this copy —
+            # keeps the app running with the old drawn placeholder mark.
+            logo = tk.Canvas(top, width=48, height=48, bg=BG, highlightthickness=0)
+            logo.create_polygon(_round_rect_points(0, 0, 48, 48, 14), smooth=True, fill=PANEL_SOFT, outline=ACCENT_DIM)
+            logo.create_text(24, 24, text="▦", fill=ACCENT_2, font=("Segoe UI", 20))
         logo.pack(side="left", padx=(0, 14))
 
         title_col = tk.Frame(top, bg=BG)
@@ -465,7 +497,7 @@ class DualQRApp(tk.Tk):
         badge = tk.Frame(top, bg=PANEL_SOFT, highlightbackground=ACCENT_DIM, highlightthickness=1)
         badge.pack(side="right", pady=4)
         tk.Label(badge, text="🔒 AES-256 · Fernet encrypted", bg=PANEL_SOFT, fg=ACCENT_2,
-                 font=("Segoe UI", 9)).pack(padx=12, pady=6)
+                 font=("Segoe UI", 10)).pack(padx=12, pady=6)
 
     def _build_footer(self):
         foot = tk.Frame(self, bg=BG)
@@ -697,14 +729,17 @@ class DualQRApp(tk.Tk):
         self.d_key_mode = tk.StringVar(value="real")
         mode_row = tk.Frame(card1, bg=PANEL)
         mode_row.grid(row=1, column=0, sticky="w", padx=20)
+        # Stacked vertically rather than side-by-side — the left column in
+        # this tab is fairly narrow, and two radio labels in a row were
+        # overflowing past the card edge and getting clipped.
         tk.Radiobutton(mode_row, text="I have the real key", variable=self.d_key_mode,
                        value="real", command=self._toggle_key_mode, bg=PANEL, fg=TEXT,
                        selectcolor=PANEL_ALT, activebackground=PANEL, activeforeground=TEXT,
-                       font=FONT_BODY, highlightthickness=0, cursor="hand2").pack(side="left", padx=(0, 20))
+                       font=FONT_BODY, highlightthickness=0, cursor="hand2").pack(anchor="w", pady=(0, 4))
         tk.Radiobutton(mode_row, text="Derive from both names", variable=self.d_key_mode,
                        value="names", command=self._toggle_key_mode, bg=PANEL, fg=TEXT,
                        selectcolor=PANEL_ALT, activebackground=PANEL, activeforeground=TEXT,
-                       font=FONT_BODY, highlightthickness=0, cursor="hand2").pack(side="left")
+                       font=FONT_BODY, highlightthickness=0, cursor="hand2").pack(anchor="w")
 
         self.d_key_stack = tk.Frame(card1, bg=PANEL)
         self.d_key_stack.grid(row=2, column=0, sticky="ew", padx=20, pady=(12, 20))
@@ -750,13 +785,16 @@ class DualQRApp(tk.Tk):
                                        fg=MUTED, font=FONT_HINT, justify="center")
         self.d_thumb_label.place(relx=0.5, rely=0.5, anchor="center")
 
+        # Button and status stacked (rather than side-by-side) — this
+        # column is narrow enough that a status message next to the
+        # button was getting clipped instead of wrapping.
         btn_row = tk.Frame(left, bg=BG)
         btn_row.pack(fill="x", pady=(0, 4))
         self.d_decrypt_btn = RoundedButton(btn_row, "🔓  Decrypt", self._on_decrypt, width=170)
         self.d_decrypt_btn.pack(side="left")
 
-        self.d_status = StatusPill(btn_row)
-        self.d_status.pack(side="left", padx=16, fill="x", expand=True)
+        self.d_status = StatusPill(left, wraplength=300)
+        self.d_status.pack(fill="x", pady=(10, 0))
 
         # right: results card
         right = card(wrap)

@@ -4,6 +4,13 @@ This is your original tool with the same logic, just restyled (paper/case-file
 look instead of the dark purple-gradient one) so it doesn't look AI-generated.
 Nothing about key derivation, encryption, or QR generation/scanning changed.
 
+Latest pass: fonts bumped up and the button/heading font swapped from
+Courier New (blocky at small sizes) to Consolas, so text reads clearly
+instead of looking pixelated; a couple of labels that were getting clipped
+off the edge of narrow panels are fixed; and there's now a real app logo
+(the envelope seal mark) used as both the window/taskbar icon and the
+header mark, replacing the old placeholder icon.
+
 ## Screenshots
 
 | Create a QR | Generated QR + keys |
@@ -38,3 +45,8 @@ a Windows .exe from Linux or Mac. So:
 - The camera scan feature needs a real webcam on the machine running the app.
 - If Windows Defender/SmartScreen flags the .exe on first run (common for
   unsigned PyInstaller builds), click "More info" -> "Run anyway".
+- The `assets/icon.png` and `assets/icon.ico` files are the app logo — used
+  for the in-app header mark and the window/taskbar icon respectively.
+  `build_exe.bat` bundles the whole `assets` folder into the .exe and also
+  sets it as the .exe's own file icon. If you ever move/rename the `assets`
+  folder, update `build_exe.bat`'s `--icon` and `--add-data` flags to match.

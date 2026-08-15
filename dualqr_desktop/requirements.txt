@@ -1,4 +1,5 @@
 qrcode[pil]
 opencv-python
 cryptography
+Pillow
 pyinstaller
