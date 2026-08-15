@@ -4,6 +4,16 @@ This is your original tool with the same logic, just restyled (paper/case-file
 look instead of the dark purple-gradient one) so it doesn't look AI-generated.
 Nothing about key derivation, encryption, or QR generation/scanning changed.
 
+## Screenshots
+
+| Create a QR | Generated QR + keys |
+|---|---|
+| ![Create tab](screenshots/01-create-tab.png) | ![QR generated](screenshots/02-qr-generated.png) |
+
+| Decrypt result | How it works |
+|---|---|
+| ![Decrypt result](screenshots/03-decrypt-result.png) | ![How it works](screenshots/04-how-it-works.png) |
+
 ## Build the .exe (must be done on Windows)
 
 PyInstaller builds a binary for the OS it's *run on* — it can't cross-compile

@@ -1,0 +1,17 @@
+# PyInstaller build output
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.pyc
+
+# generated QR images from running the app
+dual_qr.png
+*.png
+!screenshots/*.png
+
+# editors / OS
+.vscode/
+.DS_Store
