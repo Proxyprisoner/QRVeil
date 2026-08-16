@@ -17,6 +17,7 @@ import urllib.parse
 import qrcode
 import cv2
 from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -81,26 +82,77 @@ def display_key(creator: str, friend: str, real_key: str) -> str:
     return f"{prefix}{creator.strip().upper()}{middle_symbols}{friend.strip().upper()}{suffix}="
 
 
-def key_from_display_inputs(creator: str, friend: str) -> dict:
+def key_from_display_inputs(creator: str, friend: str, backend: str = "fernet") -> dict:
     """
     Convenience wrapper: give it the two names, get back both the real
-    working key and the cosmetic display version in one call.
+    working key (in whichever format the chosen backend uses) and the
+    cosmetic display version in one call.
     """
-    real = key_from_names(creator, friend)
+    real = derive_real_key(creator, friend, backend)
     shown = display_key(creator, friend, real)
     return {"real_key": real, "display_key": shown}
 
 
-def create_dual_qr(public_url: str, secret_msg: str, key_str: str, output_path: str = "dual_qr.png") -> str:
+# ----------------------------------------------------------------------
+# AES-256-GCM backend — an alternate cipher option, added alongside the
+# original Fernet functions above (which are untouched). Fernet keys are
+# a base64 string; AES-GCM keys here are a 64-character hex string, so
+# each backend has its own key-derivation function returning the right
+# format. The nonce is generated per-message and packed in front of the
+# ciphertext before base64-encoding, since GCM needs it for decryption.
+# ----------------------------------------------------------------------
+
+def generate_key_gcm() -> str:
+    """Generates a random AES-256-GCM key, as a 64-character hex string."""
+    return AESGCM.generate_key(bit_length=256).hex()
+
+
+def key_from_names_gcm(creator: str, friend: str, salt: bytes = b"dual-qr-fixed-salt-gcm") -> str:
+    """Same order-independent name-derivation as key_from_names, but
+    returns a hex string (AES-GCM's raw key format) instead of base64."""
+    names_sorted = sorted([creator.strip().lower(), friend.strip().lower()])
+    combined = "-".join(names_sorted)
+    derived = hashlib.pbkdf2_hmac('sha256', combined.encode('utf-8'), salt, 390_000, dklen=32)
+    return derived.hex()
+
+
+def _encrypt_gcm(secret_msg: str, key_hex: str) -> str:
+    key = bytes.fromhex(key_hex.strip())
+    aesgcm = AESGCM(key)
+    nonce = os.urandom(12)
+    ciphertext = aesgcm.encrypt(nonce, secret_msg.encode('utf-8'), None)
+    return base64.urlsafe_b64encode(nonce + ciphertext).decode('utf-8')
+
+
+def _decrypt_gcm(token: str, key_hex: str) -> str:
+    key = bytes.fromhex(key_hex.strip())
+    raw = base64.urlsafe_b64decode(token.encode('utf-8'))
+    nonce, ciphertext = raw[:12], raw[12:]
+    aesgcm = AESGCM(key)
+    return aesgcm.decrypt(nonce, ciphertext, None).decode('utf-8')
+
+
+def derive_real_key(creator: str, friend: str, backend: str = "fernet") -> str:
+    """Picks the right name-derivation function for the selected backend."""
+    if backend == "aesgcm":
+        return key_from_names_gcm(creator, friend)
+    return key_from_names(creator, friend)
+
+
+def create_dual_qr(public_url: str, secret_msg: str, key_str: str, output_path: str = "dual_qr.png",
+                    backend: str = "fernet") -> str:
     """
     Encrypts secret_msg with key_str, embeds it in public_url query param,
-    and generates the QR code image.
+    and generates the QR code image. backend picks the cipher: "fernet"
+    (default, original behavior) or "aesgcm".
     """
-    f = Fernet(key_str.encode('utf-8'))
-
-    # Encrypt secret message (supports any language/UTF-8 character)
-    encrypted_bytes = f.encrypt(secret_msg.encode('utf-8'))
-    encoded_param = urllib.parse.quote(encrypted_bytes.decode('utf-8'))
+    if backend == "aesgcm":
+        encoded_param = urllib.parse.quote(_encrypt_gcm(secret_msg, key_str))
+    else:
+        f = Fernet(key_str.encode('utf-8'))
+        # Encrypt secret message (supports any language/UTF-8 character)
+        encrypted_bytes = f.encrypt(secret_msg.encode('utf-8'))
+        encoded_param = urllib.parse.quote(encrypted_bytes.decode('utf-8'))
 
     # Build URL payload
     separator = "&" if "?" in public_url else "?"
@@ -197,13 +249,13 @@ def scan_qr_from_camera(camera_index: int = 0, timeout_seconds: int = 30) -> str
     return decoded_data
 
 
-def decrypt_qr_data(raw_qr_data: str, key_str: str) -> dict:
+def decrypt_qr_data(raw_qr_data: str, key_str: str, backend: str = "fernet") -> dict:
     """
     Extracts the clean public URL and decrypts the hidden secret message
-    from any scanned QR string.
+    from any scanned QR string. backend picks the cipher: "fernet"
+    (default, original behavior) or "aesgcm" — must match whatever
+    backend the QR was created with.
     """
-    f = Fernet(key_str.encode('utf-8'))
-
     # Normal Scanner View: Clean Public URL
     clean_public_url = raw_qr_data.split('?d=')[0].split('&d=')[0]
     secret_msg = None
@@ -216,8 +268,12 @@ def decrypt_qr_data(raw_qr_data: str, key_str: str) -> dict:
             encrypted_val = query_params.get('d', [None])[0]
 
             if encrypted_val:
-                raw_encrypted_bytes = urllib.parse.unquote(encrypted_val).encode('utf-8')
-                secret_msg = f.decrypt(raw_encrypted_bytes).decode('utf-8')
+                if backend == "aesgcm":
+                    secret_msg = _decrypt_gcm(urllib.parse.unquote(encrypted_val), key_str)
+                else:
+                    f = Fernet(key_str.encode('utf-8'))
+                    raw_encrypted_bytes = urllib.parse.unquote(encrypted_val).encode('utf-8')
+                    secret_msg = f.decrypt(raw_encrypted_bytes).decode('utf-8')
         except Exception as e:
             secret_msg = f"Decryption Failed: {str(e)}"
 
@@ -443,6 +499,15 @@ def step_badge(parent, number):
 
 
 class DualQRApp(tk.Tk):
+    BACKEND_LABELS = {
+        "fernet": "Fernet · AES-128-CBC+HMAC",
+        "aesgcm": "AES-256-GCM",
+    }
+    KEY_FORMAT_HINTS = {
+        "fernet": "Fernet key format: base64 string (from Generate or names)",
+        "aesgcm": "AES-GCM key format: 64-character hex string (from Generate or names)",
+    }
+
     def __init__(self):
         super().__init__()
         self.title("Dual-Message QR Tool")
@@ -463,6 +528,13 @@ class DualQRApp(tk.Tk):
             self.logo_img = ImageTk.PhotoImage(header_logo)
         except Exception:
             self.logo_img = None
+
+        # Which cipher backend is used for new QRs / expected on decrypt.
+        # "fernet" = original behavior (default, unchanged). "aesgcm" is
+        # the added alternative. Both tabs read this at generate/decrypt
+        # time, so switching it doesn't touch anything already on screen.
+        self.crypto_backend = tk.StringVar(value="fernet")
+        self.crypto_backend.trace_add("write", lambda *_: self._on_backend_change())
 
         self._build_header()
         self._build_tabs()
@@ -494,10 +566,40 @@ class DualQRApp(tk.Tk):
                  text="One QR code, two messages — a public message everyone sees, and a secret only your key unlocks.",
                  bg=BG, fg=SUBTEXT, font=FONT_SUB).pack(anchor="w", pady=(2, 0))
 
-        badge = tk.Frame(top, bg=PANEL_SOFT, highlightbackground=ACCENT_DIM, highlightthickness=1)
-        badge.pack(side="right", pady=4)
-        tk.Label(badge, text="🔒 AES-256 · Fernet encrypted", bg=PANEL_SOFT, fg=ACCENT_2,
-                 font=("Segoe UI", 10)).pack(padx=12, pady=6)
+        # Cipher backend selector — top right, replaces the old static
+        # badge. BACKEND_LABELS maps the internal value to what's shown.
+        style = ttk.Style(self)
+        style.theme_use("default")
+        style.configure("Backend.TCombobox", fieldbackground=PANEL_SOFT, background=PANEL_SOFT,
+                         foreground=ACCENT_2, arrowcolor=ACCENT_2, bordercolor=ACCENT_DIM,
+                         lightcolor=PANEL_SOFT, darkcolor=PANEL_SOFT, padding=6)
+        style.map("Backend.TCombobox", fieldbackground=[("readonly", PANEL_SOFT)],
+                  foreground=[("readonly", ACCENT_2)])
+
+        badge_col = tk.Frame(top, bg=BG)
+        badge_col.pack(side="right", pady=4)
+        tk.Label(badge_col, text="🔒 CIPHER", bg=BG, fg=MUTED, font=FONT_HINT).pack(anchor="e")
+        self.backend_picker = ttk.Combobox(
+            badge_col, state="readonly", style="Backend.TCombobox", font=("Segoe UI", 10),
+            width=26, values=list(self.BACKEND_LABELS.values()))
+        self.backend_picker.set(self.BACKEND_LABELS["fernet"])
+        self.backend_picker.pack(anchor="e", pady=(2, 0))
+        self.backend_picker.bind("<<ComboboxSelected>>", self._on_backend_picked)
+
+    def _on_backend_picked(self, event=None):
+        label = self.backend_picker.get()
+        for key, val in self.BACKEND_LABELS.items():
+            if val == label:
+                self.crypto_backend.set(key)
+                return
+
+    def _on_backend_change(self):
+        """Refreshes anything on screen that shows the expected key format
+        for whichever cipher is currently selected."""
+        backend = self.crypto_backend.get()
+        hint = self.KEY_FORMAT_HINTS.get(backend, "")
+        if hasattr(self, "d_key_format_hint"):
+            self.d_key_format_hint.configure(text=hint)
 
     def _build_footer(self):
         foot = tk.Frame(self, bg=BG)
@@ -684,9 +786,10 @@ class DualQRApp(tk.Tk):
         self.update_idletasks()
 
         try:
-            keys = key_from_display_inputs(creator, friend)
+            backend = self.crypto_backend.get()
+            keys = key_from_display_inputs(creator, friend, backend)
             real_key = keys["real_key"]
-            create_dual_qr(public_url, secret, real_key, output_path)
+            create_dual_qr(public_url, secret, real_key, output_path, backend)
         except Exception as e:
             self.c_status.set(f"❌ {e}", "error")
             self.c_generate_btn.set_enabled(True)
@@ -750,6 +853,10 @@ class DualQRApp(tk.Tk):
         self.d_real_frame.columnconfigure(0, weight=1)
         self.d_key_input = styled_entry(self.d_real_frame, mono=True)
         self.d_key_input.grid(row=0, column=0, sticky="ew", ipady=7)
+        self.d_key_format_hint = tk.Label(self.d_real_frame, text=self.KEY_FORMAT_HINTS["fernet"],
+                                           bg=PANEL, fg=MUTED, font=FONT_HINT, anchor="w",
+                                           wraplength=280, justify="left")
+        self.d_key_format_hint.grid(row=1, column=0, sticky="w", pady=(4, 0))
 
         self.d_names_frame = tk.Frame(self.d_key_stack, bg=PANEL)
         self.d_names_frame.columnconfigure(0, weight=1)
@@ -866,7 +973,7 @@ class DualQRApp(tk.Tk):
             friend = self.d_friend_name.get().strip()
             if not creator or not friend:
                 raise ValueError("Please enter both names.")
-            return key_from_names(creator, friend)
+            return derive_real_key(creator, friend, self.crypto_backend.get())
 
     def _on_camera_scan(self):
         # Runs the original blocking OpenCV window in a background thread
@@ -922,7 +1029,7 @@ class DualQRApp(tk.Tk):
             self.d_status.set(f"❌ {e}", "error")
             return
 
-        result = decrypt_qr_data(scanned, key)
+        result = decrypt_qr_data(scanned, key, self.crypto_backend.get())
         self._set_readonly(self.d_public_out, result["public"])
 
         secret = result["secret"]
@@ -996,6 +1103,7 @@ class DualQRApp(tk.Tk):
         vbar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=vbar.set)
         canvas.pack(side="left", fill="both", expand=True)
+        vbar.pack(side="right", fill="y")
 
         inner = tk.Frame(canvas, bg=BG)
         window = canvas.create_window((0, 0), window=inner, anchor="nw")
